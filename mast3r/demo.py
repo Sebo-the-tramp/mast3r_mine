@@ -15,6 +15,7 @@ import copy
 from scipy.spatial.transform import Rotation
 import tempfile
 import shutil
+import cv2
 
 from mast3r.cloud_opt.sparse_ga import sparse_global_alignment
 from mast3r.cloud_opt.tsdf_optimizer import TSDFPostProcess
@@ -128,9 +129,21 @@ def get_3D_model_from_scene(silent, scene_state, min_conf_thr=2, as_pointcloud=F
     # 3D pointcloud from depthmap, poses and intrinsics
     if TSDF_thresh > 0:
         tsdf = TSDFPostProcess(scene, TSDF_thresh=TSDF_thresh)
-        pts3d, _, confs = to_numpy(tsdf.get_dense_pts3d(clean_depth=clean_depth))
+        pts3d, depths, confs = to_numpy(tsdf.get_dense_pts3d(clean_depth=clean_depth))
     else:
-        pts3d, _, confs = to_numpy(scene.get_dense_pts3d(clean_depth=clean_depth))
+        pts3d, depths, confs = to_numpy(scene.get_dense_pts3d(clean_depth=clean_depth))
+
+    depth1 = depths[0].reshape(512, 384)
+    depth2 = depths[1].reshape(512, 384)
+
+    depth1 = depth1 / np.max(depth1)
+    depth2 = depth2 / np.max(depth2)    
+
+    # combined_image = np.hstack((depth1, depth2))
+    # cv2.imshow('Combined Image', combined_image)
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows()
+
     msk = to_numpy([c > min_conf_thr for c in confs])
     return _convert_scene_output_to_glb(outfile, rgbimg, pts3d, msk, focals, cams2world, as_pointcloud=as_pointcloud,
                                         transparent_cams=transparent_cams, cam_size=cam_size, silent=silent)

@@ -41,7 +41,7 @@ class AsymmetricMASt3R(AsymmetricCroCo3DStereo):
     def __init__(self, desc_mode=('norm'), two_confs=False, desc_conf_mode=None, **kwargs):
         self.desc_mode = desc_mode
         self.two_confs = two_confs
-        self.desc_conf_mode = desc_conf_mode
+        self.desc_conf_mode = desc_conf_mode        
         super().__init__(**kwargs)
 
     @classmethod

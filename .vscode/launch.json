@@ -5,6 +5,16 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Python: Demo Run",
+            "type": "python",
+            "request": "launch",
+            "program": "/home/lab/Documents/scsv/thesis/mast3r_mine/demo.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--model_name", "MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric"
+            ]
+        },
+        {
             "name": "Python: TorchRun Train",
             "type": "python",
             "request": "launch",
