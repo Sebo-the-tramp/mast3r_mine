@@ -250,7 +250,11 @@ class InfoNCE(MatchingCriterion):
         if valid_matches is None:
             valid_matches = torch.ones([B, N], dtype=bool)
         # torch.all(valid_matches.sum(dim=-1) > 0) some pairs have no matches????
-        assert valid_matches.shape == torch.Size([B, N]) and valid_matches.sum() > 0
+        assert valid_matches.shape == torch.Size([B, N]) 
+        # assert valid_matches.shape == torch.Size([B, N]) and valid_matches.sum() > 0
+
+        if valid_matches.sum() == 0:
+            return torch.tensor(0.0, device=desc1.device)
 
         # Tempered similarities
         sim = get_similarities(desc1, desc2, euc) / self.temperature
