@@ -254,6 +254,7 @@ class InfoNCE(MatchingCriterion):
         # assert valid_matches.shape == torch.Size([B, N]) and valid_matches.sum() > 0
 
         if valid_matches.sum() == 0:
+            # return None
             return torch.tensor(0.0, device=desc1.device)
 
         # Tempered similarities

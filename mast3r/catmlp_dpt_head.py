@@ -71,9 +71,22 @@ class Cat_MLP_LocalFeatures_DPT_Pts3d(PixelwiseTaskWithDPT):
     def forward(self, decout, img_shape):
         # pass through the heads
         pts3d = self.dpt(decout, image_size=(img_shape[0], img_shape[1]))
+        # this is OKAY so far
 
-        # recover encoder and decoder outputs
+        # recover encoder and decoder outputs -> it's a fucking list with the firs the encoder output and the last the decoder output as it is 13 of len
         enc_output, dec_output = decout[0], decout[-1]
+
+        # hardcoded for now
+        patch_size = 16
+        original_size = (img_shape[0] // patch_size) * (img_shape[1] // patch_size)        
+        
+        if enc_output.shape[1] == original_size + 1:
+            enc_output = enc_output[:,:-1]
+            dec_output = dec_output[:,:-1]
+        elif enc_output.shape[1] == original_size + 2:
+            enc_output = enc_output[:,:-2]
+            dec_output = dec_output[:,:-2]
+    
         cat_output = torch.cat([enc_output, dec_output], dim=-1)  # concatenate
         H, W = img_shape
         B, S, D = cat_output.shape
