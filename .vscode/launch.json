@@ -8,7 +8,7 @@
             "name": "Python: Demo Run",
             "type": "debugpy",
             "request": "launch",
-            "program": "/home/lab/Documents/scsv/thesis/mast3r_mine/demo.py",
+            "program": "/home/lab/Documents/scsv/thesis/mast3r_mine/demo_ext.py",
             "console": "integratedTerminal",
             "args": [
                 "--model_name", "MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric"
