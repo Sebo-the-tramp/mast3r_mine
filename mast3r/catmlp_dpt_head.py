@@ -38,7 +38,6 @@ def postprocess(out, depth_mode, conf_mode, desc_dim=None, desc_mode='norm', two
             res['desc_conf'] = res['conf'].clone()
     return res
 
-
 class Cat_MLP_LocalFeatures_DPT_Pts3d(PixelwiseTaskWithDPT):
     """ Mixture between MLP and DPT head that outputs 3d points and local features (with MLP).
     The input for both heads is a concatenation of Encoder and Decoder outputs
@@ -67,6 +66,9 @@ class Cat_MLP_LocalFeatures_DPT_Pts3d(PixelwiseTaskWithDPT):
         self.head_local_features = Mlp(in_features=idim,
                                        hidden_features=int(hidden_dim_factor * idim),
                                        out_features=(self.local_feat_dim + self.two_confs) * self.patch_size**2)
+        
+        self.head_reconstruction_intrinsics = torch.nn.Linear(768, 6)
+        self.head_reconstruction_extrinsics = torch.nn.Linear(768, 16)        
 
     def forward(self, decout, img_shape):
         # pass through the heads
@@ -96,6 +98,10 @@ class Cat_MLP_LocalFeatures_DPT_Pts3d(PixelwiseTaskWithDPT):
         local_features = local_features.transpose(-1, -2).view(B, -1, H // self.patch_size, W // self.patch_size)
         local_features = F.pixel_shuffle(local_features, self.patch_size)  # B,d,H,W
 
+        # extract extrinsics and extrinsics
+        reconstructed_intrinsics = self.head_reconstruction_intrinsics(decout[-1][:, -2])
+        reconstructed_extrinsics = self.head_reconstruction_extrinsics(decout[-1][:, -1])        
+
         # post process 3D pts, descriptors and confidences
         out = torch.cat([pts3d, local_features], dim=1)
         if self.postprocess:
@@ -106,7 +112,11 @@ class Cat_MLP_LocalFeatures_DPT_Pts3d(PixelwiseTaskWithDPT):
                                    desc_mode=self.desc_mode,
                                    two_confs=self.two_confs,
                                    desc_conf_mode=self.desc_conf_mode)
-        return out
+            
+        # out["camera_intrinsics"] = reconstructed_intrinsics
+        # out["camera_pose"] = reconstructed_extrinsics
+
+        return out, reconstructed_intrinsics, reconstructed_extrinsics
 
 
 def mast3r_head_factory(head_type, output_mode, net, has_conf=False):

@@ -465,7 +465,6 @@ class MatchingLoss (Criterion, MultiLoss):
         details[type(self).__name__] = float(loss.mean())
         return loss, (details | monitoring)
 
-
 class ConfMatchingLoss(ConfLoss):
     """ Weight matching by learned confidence. Same as ConfLoss but for a matching criterion
         Assuming the input matching_loss is a match-level loss.
@@ -512,3 +511,60 @@ class ConfMatchingLoss(ConfLoss):
             conf_loss = conf_loss + neg_loss
 
         return conf_loss, dict(matching_conf_loss=float(conf_loss), **details)
+
+
+class ParamLoss(MultiLoss):
+    """
+    Computes a loss between real and predicted camera intrinsics and extrinsics.
+    Handles differences in value ranges by applying logarithmic scaling to each parameter type.
+    """
+    def __init__(self, intrinsic_weight=1.0, extrinsic_weight=1.0):
+        super(ParamLoss, self).__init__()
+        self.intrinsic_weight = intrinsic_weight
+        self.extrinsic_weight = extrinsic_weight
+
+    def log_loss(self, real, pred):
+        """
+        Compute the logarithmic loss to handle scale differences effectively.
+        """
+        # Use log1p (log(1 + x)) for numerical stability
+        # return torch.mean((torch.log1p(real) - torch.log1p(pred))**2)
+        real = torch.log1p(torch.nn.functional.softplus(real))
+        pred = torch.log1p(torch.nn.functional.softplus(pred))
+        return torch.mean((real - pred) ** 2)
+
+    def compute_loss(self, gt1, gt2, pred1, pred2):
+        """
+        Compute the total loss with separate contributions from intrinsics and extrinsics.
+        """
+
+        # extracting ground_truth and setting to the correct values
+        ext1_gt = gt1['camera_pose'].flatten(1)
+        ext2_gt = gt2['camera_pose'].flatten(1)
+        int1_gt = gt1['camera_intrinsics'].flatten(1)[:,:6]
+        int2_gt = gt2['camera_intrinsics'].flatten(1)[:,:6]
+
+        pred_extrinsics1 = pred1['camera_pose']
+        pred_extrinsics2 = pred2['camera_pose']
+        pred_intrinsics1 = pred1['camera_intrinsics']
+        pred_intrinsics2 = pred2['camera_intrinsics']
+
+        intrinsic_loss_view_1 = self.log_loss(int1_gt, pred_intrinsics1)
+        intrinsic_loss_view_2 = self.log_loss(int2_gt, pred_intrinsics2)
+
+        extrinsic_loss_view_1 = self.log_loss(ext1_gt, pred_extrinsics1)
+        extrinsic_loss_view_2 = self.log_loss(ext2_gt, pred_extrinsics2)        
+
+        total_loss_intrinsics = intrinsic_loss_view_1 + intrinsic_loss_view_2
+        total_loss_extrinsics = extrinsic_loss_view_1 + extrinsic_loss_view_2
+
+        total_loss = self.intrinsic_weight * total_loss_intrinsics + self.extrinsic_weight * total_loss_extrinsics
+
+        details = {
+            "ParamLoss_intrinsic": float(total_loss_intrinsics),
+            "ParamLoss_extrinsic": float(total_loss_extrinsics),
+        }
+        return total_loss, details
+
+    def get_name(self):
+        return "ParamLoss"
