@@ -22,7 +22,7 @@ import croco.utils.misc as misc  # noqa
 from dust3r.training import * # noqai
 
 from mast3r.model import AsymmetricMASt3R
-from mast3r.losses import ConfMatchingLoss, MatchingLoss, APLoss, Regr3D, InfoNCE, Regr3D_ScaleShiftInv
+from mast3r.losses import ConfMatchingLoss, MatchingLoss, APLoss, Regr3D, InfoNCE, Regr3D_ScaleShiftInv, ParamLoss, ReprojectionLoss
 from mast3r.datasets import ARKitScenes, BlendedMVS, Co3d, MegaDepth, ScanNetpp, StaticThings3D, Waymo, WildRGBD
 
 import mast3r.utils.path_to_dust3r  # noqa
@@ -35,6 +35,8 @@ dust3r.training.MatchingLoss = MatchingLoss
 dust3r.training.ConfMatchingLoss = ConfMatchingLoss
 dust3r.training.InfoNCE = InfoNCE
 dust3r.training.APLoss = APLoss
+dust3r.training.ParamLoss = ParamLoss
+dust3r.training.ReprojectionLoss = ReprojectionLoss
 
 import dust3r.datasets
 dust3r.datasets.ARKitScenes = ARKitScenes

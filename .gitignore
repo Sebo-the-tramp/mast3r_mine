@@ -131,4 +131,4 @@ dmypy.json
 
 # checkpoints
 checkpoints
-evaluation/data
+evaluation/data/arkitscenes_pairs
