@@ -8,4 +8,4 @@ CUDA_VISIBLE_DEVICES=4,5,6,7 torchrun --nproc_per_node 4 --master_addr=127.0.0.1
     --pretrained="../dust3r_mine/checkpoints/dust3r_512dpt/checkpoint-best.pth" \
     --lr=0.00001 --min_lr=1e-07 --warmup_epochs=15 --epochs=5 --batch_size=2 --accum_iter=8 \
     --save_freq=5 --keep_freq=10 --eval_freq=1 --print_freq=5 --disable_cudnn_benchmark \
-    --output_dir="/data3/sebastian.cavada/experiments/big/dust3r_512dpt_finetuned_100k_mod_ext+int_reproj"
+    --output_dir="/data3/sebastian.cavada/experiments/big/dust3r_512dpt_finetuned_100k_mod_ext+int_reproj_BEFORE"

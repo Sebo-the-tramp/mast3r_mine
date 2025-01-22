@@ -16,7 +16,6 @@ from dust3r.utils.geometry import (geotrf, inv, normalize_pointcloud)
 from dust3r.inference import get_pred_pts3d
 from dust3r.utils.geometry import get_joint_pointcloud_depth, get_joint_pointcloud_center_scale
 
-
 def apply_log_to_norm(xyz):
     d = xyz.norm(dim=-1, keepdim=True)
     xyz = xyz / d.clip(min=1e-8)
@@ -575,11 +574,90 @@ class ReprojectionLoss(Criterion, MultiLoss):
     Computes a loss between real and predicted camera intrinsics and extrinsics.
     Handles differences in value ranges by applying logarithmic scaling to each parameter type.
     """
-    def __init__(self, criterion, norm_mode='avg_dis', gt_scale=False):
+    def __init__(self, criterion, norm_mode='avg_dis', gt_scale=False, sky_loss_value=2, max_metric_scale=False):
         super().__init__(criterion)
-        self.norm_mode = norm_mode
+        if norm_mode.startswith('?'):
+            # do no norm pts from metric scale datasets
+            self.norm_all = False
+            self.norm_mode = norm_mode[1:]
+        else:
+            self.norm_all = True
+            self.norm_mode = norm_mode
+
+        self.loss_in_log = False
+        self.sky_loss_value = sky_loss_value
+        self.max_metric_scale = max_metric_scale
         self.gt_scale = gt_scale
 
+    # def project_points(self, points, intrinsics, extrinsics_relative_cam1):        
+
+    #     R_batch = extrinsics_relative_cam1[:, :3, :3]
+    #     T_batch = extrinsics_relative_cam1[:, :3, 3]
+
+    #     # correct
+    #     pts3d_transformed = torch.einsum(
+    #         "bij,bhwj->bhwi", R_batch, points - T_batch[:, None, None, :]
+    #     )
+
+    #     # Extract the intrinsic parameters for each batch
+    #     # Extract intrinsic parameters
+    #     f_x = intrinsics[:, 0].unsqueeze(-1).unsqueeze(-1)  # Shape: (B, 1, 1)
+    #     f_y = intrinsics[:, 4].unsqueeze(-1).unsqueeze(-1)  # Shape: (B, 1, 1)
+    #     c_x = intrinsics[:, 2].unsqueeze(-1).unsqueeze(-1)  # Shape: (B, 1, 1)
+    #     c_y = intrinsics[:, 5].unsqueeze(-1).unsqueeze(-1)  # Shape: (B, 1, 1)
+
+    #     # project points to 2D
+    #     x = pts3d_transformed[..., 0]  # Shape: (B, H, W)
+    #     y = pts3d_transformed[..., 1]  # Shape: (B, H, W)
+    #     z = pts3d_transformed[..., 2]  # Shape: (B, H, W)
+
+    #     # print("shape", points.shape)
+    #     # print("XXXX", x.min(), x.max())
+    #     # print("YYYY", y.min(), y.max())
+
+    #     # z = torch.clamp(z, min=1e-4)  # Ensure z is always >= 1e-4
+    #     # see if the problem goes away if it does, then we can add the mask as well
+    #     mask = z > 0
+    #     # z = torch.clamp(z, min=1e-4)  # Ensure z is always >= 1e-4 
+    #     # just a test for now
+    #     # mask = z < 20000
+
+    #     H = pts3d_transformed.shape[1]
+    #     W = pts3d_transformed.shape[2]
+
+    #     # normalize to have everything in the range of the [-1, 1]
+    #     f_x = f_x * 2 / W
+    #     f_y = f_y * 2 / H
+    #     c_x = (c_x * 2 / W) - 1
+    #     c_y = (c_y * 2 / H) - 1
+
+    #     u = (f_x * x / z) + c_x
+    #     v = (f_y * y / z) + c_y
+
+    #     # print(u.min(), u.max(), v.min(), v.max())
+
+    #     # map[u,v] = z
+
+    #     return torch.stack([u, v], dim=-1), mask
+    
+    def reprojection_loss(self, pts2d, valid):
+
+        # what if there is a batch with different orientations? shit
+        B, H, W, _ = pts2d.shape
+        
+        gt = torch.stack(torch.meshgrid(
+            torch.linspace(-1, 1, H, device=pts2d.device),
+            torch.linspace(-1, 1, W, device=pts2d.device),
+            indexing='ij'
+        ), dim=-1).unsqueeze(0).expand(B, -1, -1, -1)   
+
+        pts2d_valid = pts2d[valid]
+        gt = gt[valid]
+
+        # Compute the L2 distance between the predicted and ground truth points
+        loss = self.criterion(pts2d_valid, gt)
+        return loss
+    
     def project_points(self, points, intrinsics):
 
         # Extract the intrinsic parameters for each batch
@@ -609,29 +687,155 @@ class ReprojectionLoss(Criterion, MultiLoss):
         # map[u,v] = z
 
         return torch.stack([u, v], dim=-1)
+
+    def get_all_pts3d(self, gt1, gt2, pred1, pred2, dist_clip=None):
+        # everything is normalized w.r.t. camera of view1
+        in_camera1 = inv(gt1['camera_pose'])
+        gt_pts1 = geotrf(in_camera1, gt1['pts3d'])  # B,H,W,3
+        gt_pts2 = geotrf(in_camera1, gt2['pts3d'])  # B,H,W,3
+
+        valid1 = gt1['valid_mask'].clone()
+        valid2 = gt2['valid_mask'].clone()
+
+        if dist_clip is not None:
+            # points that are too far-away == invalid
+            dis1 = gt_pts1.norm(dim=-1)  # (B, H, W)
+            dis2 = gt_pts2.norm(dim=-1)  # (B, H, W)
+            valid1 = valid1 & (dis1 <= dist_clip)
+            valid2 = valid2 & (dis2 <= dist_clip)
+
+        if self.loss_in_log == 'before':
+            # this only make sense when depth_mode == 'linear'
+            gt_pts1 = apply_log_to_norm(gt_pts1)
+            gt_pts2 = apply_log_to_norm(gt_pts2)
+
+        pr_pts1 = get_pred_pts3d(gt1, pred1, use_pose=False).clone()
+        pr_pts2 = get_pred_pts3d(gt2, pred2, use_pose=True).clone()
+
+        if not self.norm_all:
+            if self.max_metric_scale:
+                B = valid1.shape[0]
+                # valid1: B, H, W
+                # torch.linalg.norm(gt_pts1, dim=-1) -> B, H, W
+                # dist1_to_cam1 -> reshape to B, H*W
+                dist1_to_cam1 = torch.where(valid1, torch.linalg.norm(gt_pts1, dim=-1), 0).view(B, -1)
+                dist2_to_cam1 = torch.where(valid2, torch.linalg.norm(gt_pts2, dim=-1), 0).view(B, -1)
+
+                # is_metric_scale: B
+                # dist1_to_cam1.max(dim=-1).values -> B
+                gt1['is_metric_scale'] = gt1['is_metric_scale'] \
+                    & (dist1_to_cam1.max(dim=-1).values < self.max_metric_scale) \
+                    & (dist2_to_cam1.max(dim=-1).values < self.max_metric_scale)
+                gt2['is_metric_scale'] = gt1['is_metric_scale']
+
+            mask = ~gt1['is_metric_scale']
+        else:
+            mask = torch.ones_like(gt1['is_metric_scale'])
+        # normalize 3d points
+        if self.norm_mode and mask.any():
+            pr_pts1[mask], pr_pts2[mask] = normalize_pointcloud(pr_pts1[mask], pr_pts2[mask], self.norm_mode,
+                                                                valid1[mask], valid2[mask])
+
+        if self.norm_mode and not self.gt_scale:
+            gt_pts1, gt_pts2, norm_factor = normalize_pointcloud(gt_pts1, gt_pts2, self.norm_mode,
+                                                                 valid1, valid2, ret_factor=True)
+            # apply the same normalization to prediction
+            pr_pts1[~mask] = pr_pts1[~mask] / norm_factor[~mask]
+            pr_pts2[~mask] = pr_pts2[~mask] / norm_factor[~mask]
+
+        # return sky segmentation, making sure they don't include any labelled 3d points
+        sky1 = gt1['sky_mask'] & (~valid1)
+        sky2 = gt2['sky_mask'] & (~valid2)
+        return gt_pts1, gt_pts2, pr_pts1, pr_pts2, valid1, valid2, sky1, sky2, {}
     
-    def reprojection_loss(self, pts2d, valid):
 
-        # what if there is a batch with different orientations? shit
-        B, H, W, _ = pts2d.shape
+    # def compute_loss(self, gt1, gt2, pred1, pred2, **kw):
+
+    #     gt_pts1, gt_pts2, pred_pts1, pred_pts2, mask1, mask2, monitoring = \
+    #         self.get_all_pts3d(gt1, gt2, pred1, pred2, **kw)
+
+    #     # print(pred_pts1.shape)
+    #     # print(pred_pts2.shape)
+
+    #     intrinsics_1 = gt1['camera_intrinsics'].flatten(1)[:,:6]
+    #     intrinsics_2 = gt2['camera_intrinsics'].flatten(1)[:,:6]
+
+    #     extrinsics_1 = gt1['camera_pose']
+    #     extrinsics_1_relative_cam1 = torch.eye(4).to(extrinsics_1.device).reshape(1, 4, 4).repeat(extrinsics_1.shape[0], 1, 1)
         
-        gt = torch.stack(torch.meshgrid(
-            torch.linspace(-1, 1, H, device=pts2d.device),
-            torch.linspace(-1, 1, W, device=pts2d.device),
-            indexing='ij'
-        ), dim=-1).unsqueeze(0).expand(B, -1, -1, -1)   
+    #     extrinsics_2 = gt2['camera_pose']
+    #     world_to_cam1 = torch.inverse(extrinsics_1)
+    #     extrinsics_2_relative_cam1 = torch.matmul(world_to_cam1, extrinsics_2)
 
-        pts2d_valid = pts2d[valid]
-        gt = gt[valid]
+    #     # torch.Size([2, 384, 512, 2])
+    #     pts2d_1, projected_mask1 = self.project_points(pred_pts1, intrinsics_1, extrinsics_1_relative_cam1)
+    #     pts2d_2, projected_mask2 = self.project_points(pred_pts1, intrinsics_2, extrinsics_2_relative_cam1)        
 
-        # Compute the L2 distance between the predicted and ground truth points
-        loss = self.criterion(pts2d_valid, gt)
-        return loss
+    #     mask1 = mask1 | projected_mask1
+    #     mask2 = mask2 | projected_mask2
 
-    def compute_loss(self, gt1, gt2, pred1, pred2):
+    #     loss_view_1 = self.reprojection_loss(pts2d_1, mask1)
+    #     loss_view_2 = self.reprojection_loss(pts2d_2, mask2)
+
+    #     print(loss_view_1.mean(), loss_view_2.mean())
+
+    #     self_name = type(self).__name__
+    #     details = {self_name + '_pts2d_1': float(loss_view_1.mean()), self_name + '_pts2d_2': float(loss_view_2.mean())}        
+    #     return Sum((loss_view_1, mask1), (loss_view_2, mask2)), (details | {}) 
+            
+
+    # def compute_loss(self, gt1, gt2, pred1, pred2):
+    #     """
+    #     Compute the total loss with separate contributions from intrinsics and extrinsics.
+    #     """
+
+    #     # extracting ground_truth and setting to the correct values       
+    #     # this is the order of intrinsics in the gt['camera_intrinsics'] tensor
+    #     # f_x1, a, c_x1, f_y1, b, c_y1        
+    #     intrinsics_1 = gt1['camera_intrinsics'].flatten(1)[:,:6]
+    #     intrinsics_2 = gt2['camera_intrinsics'].flatten(1)[:,:6]
+
+    #     extrinsics_1 = gt1['camera_pose']
+    #     extrinsics_2 = gt2['camera_pose']
+
+    #     print("IMAGE PAIR RESPONSIBLE:", gt1['label'])
+
+    #     extrinsics_1_relative_cam1 = torch.eye(4).to(extrinsics_1.device).reshape(1, 4, 4).repeat(extrinsics_1.shape[0], 1, 1)
+
+    #     world_to_cam1 = torch.inverse(extrinsics_1)
+    #     extrinsics_2_relative_cam1 = torch.matmul(world_to_cam1, extrinsics_2)
+
+    #     #torch.Size([2, 384, 512, 2])
+    #     pts2d_1, projected_mask1 = self.project_points(pred1['pts3d'], intrinsics_1, extrinsics_1_relative_cam1)
+    #     pts2d_2, projected_mask2 = self.project_points(pred2['pts3d_in_other_view'], intrinsics_2, extrinsics_2_relative_cam1)
+
+    #     mask1 = gt1['valid_mask'].clone() | projected_mask1
+    #     mask2 = gt2['valid_mask'].clone() | projected_mask2
+
+    #     loss_view_1 = self.reprojection_loss(pts2d_1, mask1)
+    #     loss_view_2 = self.reprojection_loss(pts2d_2, mask2)
+    #     # print(loss_view_2)
+
+    #     # print(torch.isnan(loss_view_1).any(), torch.isnan(loss_view_2).any())
+
+    #     # print(loss_view_1.mean(), loss_view_2.mean())
+
+    #     self_name = type(self).__name__
+    #     details = {self_name + '_pts2d_1': float(loss_view_1.mean()), self_name + '_pts2d_2': float(loss_view_2.mean())}        
+    #     return Sum((loss_view_1, mask1), (loss_view_2, mask2)), (details | {})
+
+
+
+    def compute_loss(self, gt1, gt2, pred1, pred2, **kw):
         """
         Compute the total loss with separate contributions from intrinsics and extrinsics.
         """
+
+        gt_pts1, gt_pts2, pred_pts1, pred_pts2, mask1, mask2, sky1, sky2, monitoring = \
+                self.get_all_pts3d(gt1, gt2, pred1, pred2, **kw) 
+
+        print(pred_pts1.shape)
+        print(pred_pts2.shape)
 
         # extracting ground_truth and setting to the correct values       
         # this is the order of intrinsics in the gt['camera_intrinsics'] tensor
@@ -647,6 +851,8 @@ class ReprojectionLoss(Criterion, MultiLoss):
 
         loss_view_1 = self.reprojection_loss(pts2d_1, mask1)
         loss_view_2 = self.reprojection_loss(pts2d_2, mask2)
+
+        print(loss_view_1.mean(), loss_view_2.mean())
 
         self_name = type(self).__name__
         details = {self_name + '_pts2d_1': float(loss_view_1.mean()), self_name + '_pts2d_2': float(loss_view_2.mean())}        
