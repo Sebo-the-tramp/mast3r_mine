@@ -589,56 +589,47 @@ class ReprojectionLoss(Criterion, MultiLoss):
         self.max_metric_scale = max_metric_scale
         self.gt_scale = gt_scale
 
-    # def project_points(self, points, intrinsics, extrinsics_relative_cam1):        
+    def project_points(self, points, intrinsics, extrinsics_relative_cam1):        
 
-    #     R_batch = extrinsics_relative_cam1[:, :3, :3]
-    #     T_batch = extrinsics_relative_cam1[:, :3, 3]
+        R_batch = extrinsics_relative_cam1[:, :3, :3]
+        T_batch = extrinsics_relative_cam1[:, :3, 3]
 
-    #     # correct
-    #     pts3d_transformed = torch.einsum(
-    #         "bij,bhwj->bhwi", R_batch, points - T_batch[:, None, None, :]
-    #     )
+        # correct
+        pts3d_transformed = torch.einsum(
+            "bij,bhwj->bhwi", R_batch, points - T_batch[:, None, None, :]
+        )
 
-    #     # Extract the intrinsic parameters for each batch
-    #     # Extract intrinsic parameters
-    #     f_x = intrinsics[:, 0].unsqueeze(-1).unsqueeze(-1)  # Shape: (B, 1, 1)
-    #     f_y = intrinsics[:, 4].unsqueeze(-1).unsqueeze(-1)  # Shape: (B, 1, 1)
-    #     c_x = intrinsics[:, 2].unsqueeze(-1).unsqueeze(-1)  # Shape: (B, 1, 1)
-    #     c_y = intrinsics[:, 5].unsqueeze(-1).unsqueeze(-1)  # Shape: (B, 1, 1)
+        # Extract the intrinsic parameters for each batch
+        # Extract intrinsic parameters
+        f_x = intrinsics[:, 0].unsqueeze(-1).unsqueeze(-1)  # Shape: (B, 1, 1)
+        f_y = intrinsics[:, 4].unsqueeze(-1).unsqueeze(-1)  # Shape: (B, 1, 1)
+        c_x = intrinsics[:, 2].unsqueeze(-1).unsqueeze(-1)  # Shape: (B, 1, 1)
+        c_y = intrinsics[:, 5].unsqueeze(-1).unsqueeze(-1)  # Shape: (B, 1, 1)
 
-    #     # project points to 2D
-    #     x = pts3d_transformed[..., 0]  # Shape: (B, H, W)
-    #     y = pts3d_transformed[..., 1]  # Shape: (B, H, W)
-    #     z = pts3d_transformed[..., 2]  # Shape: (B, H, W)
+        # project points to 2D
+        x = pts3d_transformed[..., 0]  # Shape: (B, H, W)
+        y = pts3d_transformed[..., 1]  # Shape: (B, H, W)
+        z = pts3d_transformed[..., 2]  # Shape: (B, H, W)        
 
-    #     # print("shape", points.shape)
-    #     # print("XXXX", x.min(), x.max())
-    #     # print("YYYY", y.min(), y.max())
+        H = pts3d_transformed.shape[1]
+        W = pts3d_transformed.shape[2]
 
-    #     # z = torch.clamp(z, min=1e-4)  # Ensure z is always >= 1e-4
-    #     # see if the problem goes away if it does, then we can add the mask as well
-    #     mask = z > 0
-    #     # z = torch.clamp(z, min=1e-4)  # Ensure z is always >= 1e-4 
-    #     # just a test for now
-    #     # mask = z < 20000
+        # normalize to have everything in the range of the [-1, 1]
+        f_x = f_x * 2 / W
+        f_y = f_y * 2 / H
+        c_x = (c_x * 2 / W) - 1
+        c_y = (c_y * 2 / H) - 1
 
-    #     H = pts3d_transformed.shape[1]
-    #     W = pts3d_transformed.shape[2]
+        u = (f_x * x / z) + c_x
+        v = (f_y * y / z) + c_y
 
-    #     # normalize to have everything in the range of the [-1, 1]
-    #     f_x = f_x * 2 / W
-    #     f_y = f_y * 2 / H
-    #     c_x = (c_x * 2 / W) - 1
-    #     c_y = (c_y * 2 / H) - 1
+        projected_grid = torch.stack([u, v], dim=-1)
 
-    #     u = (f_x * x / z) + c_x
-    #     v = (f_y * y / z) + c_y
+        threshold = 10    
 
-    #     # print(u.min(), u.max(), v.min(), v.max())
+        mask = (projected_grid[..., 0] > -threshold) & (projected_grid[..., 0] < threshold) & (projected_grid[..., 1] > -threshold) & (projected_grid[..., 1] < threshold)
 
-    #     # map[u,v] = z
-
-    #     return torch.stack([u, v], dim=-1), mask
+        return  projected_grid, mask
     
     def reprojection_loss(self, pts2d, valid):
 
@@ -658,35 +649,33 @@ class ReprojectionLoss(Criterion, MultiLoss):
         loss = self.criterion(pts2d_valid, gt)
         return loss
     
-    def project_points(self, points, intrinsics):
+    # def project_points(self, points, intrinsics):
 
-        # Extract the intrinsic parameters for each batch
-        # Extract intrinsic parameters
-        f_x = intrinsics[:, 0].unsqueeze(-1).unsqueeze(-1)  # Shape: (B, 1, 1)
-        f_y = intrinsics[:, 4].unsqueeze(-1).unsqueeze(-1)  # Shape: (B, 1, 1)
-        c_x = intrinsics[:, 2].unsqueeze(-1).unsqueeze(-1)  # Shape: (B, 1, 1)
-        c_y = intrinsics[:, 5].unsqueeze(-1).unsqueeze(-1)  # Shape: (B, 1, 1)
+    #     # Extract the intrinsic parameters for each batch
+    #     # Extract intrinsic parameters
+    #     f_x = intrinsics[:, 0].unsqueeze(-1).unsqueeze(-1)  # Shape: (B, 1, 1)
+    #     f_y = intrinsics[:, 4].unsqueeze(-1).unsqueeze(-1)  # Shape: (B, 1, 1)
+    #     c_x = intrinsics[:, 2].unsqueeze(-1).unsqueeze(-1)  # Shape: (B, 1, 1)
+    #     c_y = intrinsics[:, 5].unsqueeze(-1).unsqueeze(-1)  # Shape: (B, 1, 1)
 
-        # project points to 2D
-        x = points[..., 0]  # Shape: (B, H, W)
-        y = points[..., 1]  # Shape: (B, H, W)
-        z = points[..., 2]  # Shape: (B, H, W)
+    #     # project points to 2D
+    #     x = points[..., 0]  # Shape: (B, H, W)
+    #     y = points[..., 1]  # Shape: (B, H, W)
+    #     z = points[..., 2]  # Shape: (B, H, W)
 
-        H = points.shape[1]
-        W = points.shape[2]
+    #     H = points.shape[1]
+    #     W = points.shape[2]
 
-        # normalize to have everything in the range of the [-1, 1]
-        f_x = f_x * 2 / W
-        f_y = f_y * 2 / H
-        c_x = (c_x * 2 / W) - 1
-        c_y = (c_y * 2 / H) - 1
+    #     # normalize to have everything in the range of the [-1, 1]
+    #     f_x = f_x * 2 / W
+    #     f_y = f_y * 2 / H
+    #     c_x = (c_x * 2 / W) - 1
+    #     c_y = (c_y * 2 / H) - 1
 
-        u = (f_x * x / z) + c_x
-        v = (f_y * y / z) + c_y
+    #     u = (f_x * x / z) + c_x
+    #     v = (f_y * y / z) + c_y        
 
-        # map[u,v] = z
-
-        return torch.stack([u, v], dim=-1)
+    #     return torch.stack([u, v], dim=-1)
 
     def get_all_pts3d(self, gt1, gt2, pred1, pred2, dist_clip=None):
         # everything is normalized w.r.t. camera of view1
@@ -749,39 +738,49 @@ class ReprojectionLoss(Criterion, MultiLoss):
         return gt_pts1, gt_pts2, pr_pts1, pr_pts2, valid1, valid2, sky1, sky2, {}
     
 
-    # def compute_loss(self, gt1, gt2, pred1, pred2, **kw):
+    def compute_loss(self, gt1, gt2, pred1, pred2, **kw):
 
-    #     gt_pts1, gt_pts2, pred_pts1, pred_pts2, mask1, mask2, monitoring = \
-    #         self.get_all_pts3d(gt1, gt2, pred1, pred2, **kw)
+        gt_pts1, gt_pts2, pred_pts1, pred_pts2, mask1, mask2, sky1, sky2, monitoring = \
+            self.get_all_pts3d(gt1, gt2, pred1, pred2, **kw)
 
-    #     # print(pred_pts1.shape)
-    #     # print(pred_pts2.shape)
+        intrinsics_1 = gt1['camera_intrinsics'].flatten(1)[:,:6]
+        intrinsics_2 = gt2['camera_intrinsics'].flatten(1)[:,:6]
 
-    #     intrinsics_1 = gt1['camera_intrinsics'].flatten(1)[:,:6]
-    #     intrinsics_2 = gt2['camera_intrinsics'].flatten(1)[:,:6]
+        # since they are symmetric the same extrinsics will be found pairwise e.g.
+        # extrinsics_1 = [A, B, C, D] -> extrinsics_2 = [B, A, D, C]        
+        extrinsics_1 = gt1['camera_pose'][::2,:,:]
+        extrinsics_2 = gt2['camera_pose'][::2,:,:]
 
-    #     extrinsics_1 = gt1['camera_pose']
-    #     extrinsics_1_relative_cam1 = torch.eye(4).to(extrinsics_1.device).reshape(1, 4, 4).repeat(extrinsics_1.shape[0], 1, 1)
+        print("IMAGE PAIR RESPONSIBLE:", gt1['label'])
         
-    #     extrinsics_2 = gt2['camera_pose']
-    #     world_to_cam1 = torch.inverse(extrinsics_1)
-    #     extrinsics_2_relative_cam1 = torch.matmul(world_to_cam1, extrinsics_2)
+        # repeat as the batch size B
+        extrinsics_in_same_view = torch.eye(4).to(extrinsics_1.device).reshape(1, 4, 4).repeat(pred_pts1.shape[0], 1, 1)                
 
-    #     # torch.Size([2, 384, 512, 2])
-    #     pts2d_1, projected_mask1 = self.project_points(pred_pts1, intrinsics_1, extrinsics_1_relative_cam1)
-    #     pts2d_2, projected_mask2 = self.project_points(pred_pts1, intrinsics_2, extrinsics_2_relative_cam1)        
+        world_to_cam1 = torch.inverse(extrinsics_1)
+        extrinsics_2_relative_cam1 = torch.matmul(world_to_cam1, extrinsics_2)
 
-    #     mask1 = mask1 | projected_mask1
-    #     mask2 = mask2 | projected_mask2
+        world_to_cam2 = torch.inverse(extrinsics_2)
+        extrinsics_1_relative_cam2 = torch.matmul(world_to_cam2, extrinsics_1)
 
-    #     loss_view_1 = self.reprojection_loss(pts2d_1, mask1)
-    #     loss_view_2 = self.reprojection_loss(pts2d_2, mask2)
+        # here the order matter, as per my calculation they go this way
+        extrinsics_in_other_view = torch.cat([extrinsics_1_relative_cam2, extrinsics_2_relative_cam1], dim=0)
 
-    #     print(loss_view_1.mean(), loss_view_2.mean())
+        # torch.Size([2, 384, 512, 2])
+        pts2d_1, projected_mask1 = self.project_points(pred_pts1, intrinsics_1, extrinsics_in_same_view)
+        pts2d_2, projected_mask2 = self.project_points(pred_pts2, intrinsics_2, extrinsics_in_other_view)        
 
-    #     self_name = type(self).__name__
-    #     details = {self_name + '_pts2d_1': float(loss_view_1.mean()), self_name + '_pts2d_2': float(loss_view_2.mean())}        
-    #     return Sum((loss_view_1, mask1), (loss_view_2, mask2)), (details | {}) 
+        # both masks should be true, in order to use that pixel for the loss calculation
+        mask1 = mask1 & projected_mask1
+        mask2 = mask2 & projected_mask2
+
+        loss_view_1 = self.reprojection_loss(pts2d_1, mask1)
+        loss_view_2 = self.reprojection_loss(pts2d_2, mask2)
+
+        print(loss_view_1.mean(), loss_view_2.mean())
+
+        self_name = type(self).__name__
+        details = {self_name + '_pts2d_1': float(loss_view_1.mean()), self_name + '_pts2d_2': float(loss_view_2.mean())}        
+        return Sum((loss_view_1, mask1), (loss_view_2, mask2)), (details | {}) 
             
 
     # def compute_loss(self, gt1, gt2, pred1, pred2):
@@ -826,37 +825,37 @@ class ReprojectionLoss(Criterion, MultiLoss):
 
 
 
-    def compute_loss(self, gt1, gt2, pred1, pred2, **kw):
-        """
-        Compute the total loss with separate contributions from intrinsics and extrinsics.
-        """
+    # def compute_loss(self, gt1, gt2, pred1, pred2, **kw):
+    #     """
+    #     Compute the total loss with separate contributions from intrinsics and extrinsics.
+    #     """
 
-        gt_pts1, gt_pts2, pred_pts1, pred_pts2, mask1, mask2, sky1, sky2, monitoring = \
-                self.get_all_pts3d(gt1, gt2, pred1, pred2, **kw) 
+    #     gt_pts1, gt_pts2, pred_pts1, pred_pts2, mask1, mask2, sky1, sky2, monitoring = \
+    #             self.get_all_pts3d(gt1, gt2, pred1, pred2, **kw) 
 
-        print(pred_pts1.shape)
-        print(pred_pts2.shape)
+    #     print(pred_pts1.shape)
+    #     print(pred_pts2.shape)
 
-        # extracting ground_truth and setting to the correct values       
-        # this is the order of intrinsics in the gt['camera_intrinsics'] tensor
-        # f_x1, a, c_x1, f_y1, b, c_y1        
-        intrinsics_1 = gt1['camera_intrinsics'].flatten(1)[:,:6]
-        intrinsics_2 = gt2['camera_intrinsics'].flatten(1)[:,:6]
+    #     # extracting ground_truth and setting to the correct values       
+    #     # this is the order of intrinsics in the gt['camera_intrinsics'] tensor
+    #     # f_x1, a, c_x1, f_y1, b, c_y1        
+    #     intrinsics_1 = gt1['camera_intrinsics'].flatten(1)[:,:6]
+    #     intrinsics_2 = gt2['camera_intrinsics'].flatten(1)[:,:6]
 
-        pts2d_1 = self.project_points(pred1['pts3d'], intrinsics_1)
-        pts2d_2 = self.project_points(pred2['pts3d_in_other_view'], intrinsics_2)
+    #     pts2d_1 = self.project_points(pred1['pts3d'], intrinsics_1)
+    #     pts2d_2 = self.project_points(pred2['pts3d_in_other_view'], intrinsics_2)
 
-        mask1 = gt1['valid_mask'].clone()
-        mask2 = gt2['valid_mask'].clone()
+    #     mask1 = gt1['valid_mask'].clone()
+    #     mask2 = gt2['valid_mask'].clone()
 
-        loss_view_1 = self.reprojection_loss(pts2d_1, mask1)
-        loss_view_2 = self.reprojection_loss(pts2d_2, mask2)
+    #     loss_view_1 = self.reprojection_loss(pts2d_1, mask1)
+    #     loss_view_2 = self.reprojection_loss(pts2d_2, mask2)
 
-        print(loss_view_1.mean(), loss_view_2.mean())
+    #     print(loss_view_1.mean(), loss_view_2.mean())
 
-        self_name = type(self).__name__
-        details = {self_name + '_pts2d_1': float(loss_view_1.mean()), self_name + '_pts2d_2': float(loss_view_2.mean())}        
-        return Sum((loss_view_1, mask1), (loss_view_2, mask2)), (details | {})        
+    #     self_name = type(self).__name__
+    #     details = {self_name + '_pts2d_1': float(loss_view_1.mean()), self_name + '_pts2d_2': float(loss_view_2.mean())}        
+    #     return Sum((loss_view_1, mask1), (loss_view_2, mask2)), (details | {})        
 
     def get_name(self):
         return "ParamLoss"
