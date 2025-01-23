@@ -35,7 +35,7 @@
                 "--min_lr", "1e-06",
                 "--warmup_epochs", "15",
                 "--epochs", "10",
-                "--batch_size", "1",
+                "--batch_size", "2",
                 "--accum_iter", "4",
                 "--save_freq", "5",
                 "--keep_freq", "10",
@@ -47,7 +47,7 @@
                 "--num_workers", "1",
             ],
             "env": {
-                "CUDA_VISIBLE_DEVICES": "2",
+                "CUDA_VISIBLE_DEVICES": "7",
                 "TORCH_DISTRIBUTED_DEBUG": "DETAIL"
             },
             "cwd": "${workspaceFolder}",
@@ -62,7 +62,7 @@
             "program": "/home/sebastian.cavada/scsv/thesis/mast3r_mine/evaluation/eval_test.py",
             "console": "integratedTerminal",           
             "env": {
-                "CUDA_VISIBLE_DEVICES": "4"
+                "CUDA_VISIBLE_DEVICES": "7"
             },
         },
     ]
